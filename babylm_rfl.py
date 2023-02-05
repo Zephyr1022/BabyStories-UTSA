@@ -95,7 +95,10 @@ class BabyConfig(PretrainedConfig):
 # Writing a custom model(CustomModel)
 # Extracting the Body and adding our own layers
 # how to use a pre-trained Body and add a Custom Head. 
-class BabyModel(GPT2LMHeadModel): # nn.Module
+# As you can see we first subclass the nn Module from PyTorch, 
+# extract the model body using AutoModel (from transformers) and 
+# provide the checkpoint to the model whose body we want to use.
+class BabyModel(nn.Module): # GPT2LMHeadModel
 	
 	def __init__(self, config):
 		super().__init__()
@@ -103,6 +106,7 @@ class BabyModel(GPT2LMHeadModel): # nn.Module
 		assert config.vocab_size is not None
 		assert config.block_size is not None
 		self.config = config
+		self.num_labels = config.num_labels
 		
 		# config = AutoConfig.from_pretrained(checkpoint)
 		# config = GPT2Config.from_pretrained("gpt2") 
@@ -112,25 +116,29 @@ class BabyModel(GPT2LMHeadModel): # nn.Module
 		
 		# super(BabyModel, self).__init__(config) #GPT2LMHeadModel(config)
 		# self.num_labels = num_labels
-		
-		
-		# Load Model with given checkpoint and extract its body
-		
+
 		# key, query, value projections for all heads, but in a batch
 		# self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
 		# output projection
 		# self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+
 		
-		# init a huggingface/transformers model
-		self.model = GPT2LMHeadModel.from_pretrained("gpt2", config=config)
-		sd_hf = model_hf.state_dict()
-		
-		# copy while ensuring all of the parameters are aligned and match in names and shapes
-		sd_keys_hf = sd_hf.keys()
-		
+		# Load Model with given checkpoint and extract its body
+		self.model = AutoModel.from_pretrained(checkpoint,
+							       config=AutoConfig.from_pretrained(checkpoint, 
+												 output_attentions=True,
+												 output_hidden_states=True))
 		# regularization
 		self.dropout = nn.Dropout(0.1)
-		self.classifier = nn.Linear(768, config.num_labels) # initialize weights
+		self.classifier = nn.Linear(768, config.num_labels) # load and initialize weights
+		
+		# self.model = GPT2LMHeadModel.from_pretrained("gpt2", config=config)
+		# sd_hf = model_hf.state_dict()
+
+		# copy while ensuring all of the parameters are aligned and match in names and shapes
+		# sd_keys_hf = sd_hf.keys()
+		
+		
 	
 	def forward(self, input_ids=None, attention_mask=None, labels=None):
 		# extract outputs from the body
@@ -147,7 +155,9 @@ class BabyModel(GPT2LMHeadModel): # nn.Module
 			loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 			
 		return TokenClassifierOutput(loss=loss, logits=logits, hidden_states=outputs.hidden_states, attentions=outputs.attentions)
-	
+
+# Note that a TokenClassifierOutput (from the transformers library) is returned 
+# which makes sure that our output is in a similar format to that from a Hugging Face model on the hub.	
 	
 	
 # custom loss function that takes the input sequence, the logits - probability
