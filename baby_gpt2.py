@@ -100,13 +100,13 @@ class BabyConfig(PretrainedConfig):
 # provide the checkpoint to the model whose body we want to use.
 class BabyModel(nn.Module): # GPT2LMHeadModel
 	
-	def __init__(self, config):
-		super().__init__()
+	def __init__(self, configBaby，num_labels = 1):
+		super(BabyModel,self).__init__()
 		
-		assert config.vocab_size is not None
-		assert config.block_size is not None
-		self.config = config
-		self.num_labels = config.num_labels
+		# assert config.vocab_size is not None
+		# assert config.block_size is not None
+		self.configBaby = configBaby
+		self.num_labels = num_labels
 		
 		# config = AutoConfig.from_pretrained(checkpoint)
 		# config = GPT2Config.from_pretrained("gpt2") 
@@ -124,30 +124,36 @@ class BabyModel(nn.Module): # GPT2LMHeadModel
 
 		
 		# Load Model with given checkpoint and extract its body
-		self.model = AutoModel.from_pretrained(checkpoint,
-							       config=AutoConfig.from_pretrained(checkpoint, 
-												 output_attentions=True,
-												 output_hidden_states=True))
-		# regularization
-		self.dropout = nn.Dropout(0.1)
-		self.classifier = nn.Linear(768, config.num_labels) # load and initialize weights
-		
-		# self.model = GPT2LMHeadModel.from_pretrained("gpt2", config=config)
-		# sd_hf = model_hf.state_dict()
+		self.model = GPT2LMHeadModel(self.configBaby).from_pretrained("gpt2", output_hidden_states=True)
 
+#			self.model = AutoModel.from_pretrained("gpt2", config=AutoConfig.from_pretrained("gpt2",
+#			output_attentions=True,
+#			output_hidden_states=True
+#		))
+	
+		# regularization
+		self.classifier = nn.Linear(self.configBaby.hidden_size, self.num_labels) # load and initialize weights
+		self.dropout = nn.Dropout(0.1)
+			
+		# sd_hf = model_hf.state_dict()
 		# copy while ensuring all of the parameters are aligned and match in names and shapes
 		# sd_keys_hf = sd_hf.keys()
 		
 		
 	
 	def forward(self, input_ids=None, attention_mask=None, labels=None):
+		
 		# extract outputs from the body
-		outputs = self.model(input_ids=input_ids, attention_mask=attention_mask) 
+		gpt2_outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
 		
+		hidden_states = gpt2_outputs[-1] # obtain all hidden states # shape: (batch_size, sequence_length, hidden_size). 
+		last_hidden_state = hidden_states[-1] # select the last hidden state
+
 		# add custom layers
-		sequence_output = self.dropout(outputs[0]) # outputs[0]=last hidden state
-		
-		logits = self.classifier(sequence_output[:, 0, :].view(-1, 768)) # calculate logits
+		pooled_output = last_hidden_state.mean(axis=1)  # (bs, dim)
+		pooled_output = self.dropout(pooled_output)  # (bs, dim)
+
+		logits = self.classifier(pooled_output) # calculate logits
 		loss = None
 		
 		if labels is not None:
@@ -158,6 +164,8 @@ class BabyModel(nn.Module): # GPT2LMHeadModel
 
 # Note that a TokenClassifierOutput (from the transformers library) is returned 
 # which makes sure that our output is in a similar format to that from a Hugging Face model on the hub.	
+# hidden_state = distilbert_output.last_hidden_state
+# sequence_output = self.dropout(gpt2_outputs[0]) # outputs[0]=last hidden state
 	
 	
 # custom loss function that takes the input sequence, the logits - probability
@@ -567,5 +575,6 @@ if __name__ == '__main__':
 # 一定条件下，batchsize 越大训练效果越好，梯度累加则实现了 batchsize 的变相扩大
 # 如果accumulation_steps 为 8，则batchsize '变相' 扩大了8倍, 使用时需要注意，学习率也要适当放大
 # batch size的值通常设置在 8-32 之间
+	
 	
 	
