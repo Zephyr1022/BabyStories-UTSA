@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import torch
 import glob, os, sys
 from pathlib import Path
@@ -17,20 +15,28 @@ from datasets import load_dataset # huggingface datasets
 
 # Gathering the data
 # Define the directory containing the train files
-train_files_path = './babylm_data/babylm_10M/'
+train_files_path_100M = './babylm_data/babylm_100M/'
+train_files_path_10M = './babylm_data/babylm_10M/'
 dev_files_path = './babylm_data/babylm_dev/'
+test_files_path = './babylm_data/babylm_test/'
 
-train_files = glob.glob('./babylm_data/babylm_10M/*.train') 
-dev_files = glob.glob('./babylm_data/babylm_dev/*.dev')
+train_files = glob.glob(train_files_path_100M + '*.train') 
+dev_files = glob.glob(dev_files_path + '*.dev')
+test_files = glob.glob(test_files_path + '*.test')
 
-ds_train = load_dataset('text', data_files='./babylm_data/babylm_10M/*.train')
-print("ds_train", ds_train)
+ds_train = load_dataset('text', data_files= train_files_path_100M + '*.train')
 
-ds_valid = load_dataset('text', data_files='./babylm_data/babylm_dev/*.dev')
+ds_valid = load_dataset('text', data_files= dev_files_path + '*.dev')
 ds_valid["val"] = ds_valid.pop("train") # rename the test split to valid
-print("ds_valid", ds_valid)
 
-raw_datasets = DatasetDict({**ds_train, **ds_valid})
+ds_test = load_dataset('text', data_files= test_files_path + '*.test')
+ds_test["test"] = ds_test.pop("train") # rename the test split to valid
+
+#print("ds_train", ds_train)
+#print("ds_valid", ds_valid)
+#print("ds_test", ds_test)
+
+raw_datasets = DatasetDict({**ds_train, **ds_valid, **ds_test})
 print("raw_datasets", raw_datasets)
 
 # this results in:
@@ -45,9 +51,10 @@ print("raw_datasets", raw_datasets)
 #	})
 #})
 
+# we now want to tokenize the dataset. first define the encoding function (gpt2 bpe)
+
 # Initializing Tokenizer...
-device = torch.device("cuda") #if torch.cuda.is_available() else torch.device("cpu")
-print("device:", device)
+device = torch.device("cuda") #if torch.cuda.is_available() else torch.device("cpu"), print("device:", device)
 tokenizer = AutoTokenizer.from_pretrained("./babytoken")
 
 # A more efficient way to prepare the data is to join all the tokenized samples in a batch with an eos_token_id token in between, 
@@ -93,7 +100,6 @@ for split, dset in tokenized.items():
 	arr_len = np.sum(dset['len'])
 	filename = f'{split}.bin'
 	filepath = "./data/babylm/" + filename
-	
 	dtype = np.uint16 # (can do since enc.max_token_value == 50256 is < 2**16) and Uint stands for unsigned integer
 	arr = np.memmap(filepath, dtype=dtype, mode='w+', shape=(arr_len,))
 	
@@ -107,7 +113,7 @@ for split, dset in tokenized.items():
 # return train.bin and val.bin
 # Step1, prepare the data is to join all the tokenized samples in a batch with an eos_token_id token in between: train.bin, no pad
 # Step2, perform the chunking on the concatenated sequences, pad or not?
-	
+
 ###################################################################################################
 ###################################################################################################
 #context_length = 128

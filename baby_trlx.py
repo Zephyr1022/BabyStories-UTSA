@@ -80,3 +80,28 @@ def build_dataset(config, dataset_name="imdb", input_min_text_length=2, input_ma
 
 # We retrieve the dataloader by calling the `build_dataset` function.
 dataset = build_dataset(config)
+
+
+if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
+	raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
+
+
+def create_exp_dir(path, scripts_to_save=None):
+	if args.output_dir.endswith("test"):
+		return
+	if not os.path.exists(path):
+			os.mkdir(path)
+			
+	print('Experiment dir : {}'.format(path))
+	
+	
+def create_folder(parent_path, folder):
+    if not parent_path.endswith('/'):
+        parent_path += '/'
+    folder_path = parent_path + folder
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+    return folder_path
+
+
+f"./experiments/{MODEL_NAME}/validation"
