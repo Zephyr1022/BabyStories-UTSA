@@ -46,6 +46,7 @@ block_size = 1024 # 128, 256, 1024
 # data
 dataset = 'babylm'
 master_process = True
+
 # batch_size = 8 # test
 gradient_accumulation_steps = 2 # used to simulate larger batch sizes
 TRAIN_BATCH_SIZE = 8
@@ -61,8 +62,9 @@ EPOCHS = 30
 #bias = False # do we use bias inside LayerNorm and Linear layers?
 
 # adamw optimizer
-LEARNING_RATE = 1e-3 # 1e-4, 2e-5, 5e-4, e-4, 6e-4 
+LEARNING_RATE = 1e-3 # 1e-3, 1e-4, 2e-5, 5e-4, e-4, 6e-4  # max learning rate
 weight_decay = 0.1
+# max_iters = 600000 # total number of training iterations
 
 # system
 # device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
@@ -80,8 +82,8 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 
 # Writing a custom configuration
 class BabyConfig(PretrainedConfig):
-    model_type = "babylm"
     
+    model_type = "babylm"
     def __init__(
         self,
         block_type="bottleneck",
@@ -245,11 +247,13 @@ def train(model, accelerator, train_dataloader, optimizer, lr_scheduler, device,
         
         # sum the training loss over all batches for average loss at end
         # loss is a tensor containing a single value
-        train_total_loss += loss.item()
+        # train_total_loss += loss.item()
+        losses.append(loss)
 
         # progress update every 100 batches.
-        if step % 100 == 0:
-            print(f"{current_time_train} - epoch {epoch+1:1d} - iter {step:1d}/{len(train_dataloader):1d} - steps {completed_steps} - train/loss {loss.item() * gradient_accumulation_steps:.8f} - lr: {lr_scheduler.get_lr()[0]:.6f}")
+        if step % 300 == 0:
+            print(f"{current_time_train} - epoch {epoch+1:1d} - iter {step:1d}/{len(train_dataloader):1d} - updates {completed_steps} - train/loss {loss.item():.4f} - perplexity {torch.exp(loss):.2f} -  lr: {lr_scheduler.get_lr()[0]:.8f}")
+            
             sys.stdout.flush()
 
 #           accelerator.print(
@@ -292,11 +296,12 @@ def train(model, accelerator, train_dataloader, optimizer, lr_scheduler, device,
 
 
     # calculate the average loss over all of the batches
-    # avg_train_loss = torch.mean(torch.stack(losses)) # cat -> stack # train_total_loss / len(train_dataloader)
-    avg_train_loss = train_total_loss / len(train_dataloader)
+    avg_train_loss = torch.mean(torch.stack(losses)) # cat -> stack # train_total_loss / len(train_dataloader)
+    # avg_train_loss = train_total_loss / len(train_dataloader)
+    # print(avg_train_loss1, avg_train_loss2)
     
     # calculate the average perplexity over all of the batches
-    avg_train_perplexity = torch.exp(torch.tensor(avg_train_loss)) # total_train_f1 / len(train_dataloader)
+    avg_train_perplexity = torch.exp(avg_train_loss) # total_train_f1 / len(train_dataloader)
     
     # training time end
     training_time = time.time() - total_t0
@@ -311,7 +316,7 @@ def train(model, accelerator, train_dataloader, optimizer, lr_scheduler, device,
 #   print("epoch | trn loss | trn perplexity | trn time | lr ")
 #   print(f" epoch {epoch+1:5d} - loss {avg_train_loss:.5f} - perplexity {avg_train_perplexity:.5f} -time (sec) {training_time:.2f} - lr {lr_train:.5f}" )
     print(f"{current_time_train} - {'-' * 89}")
-    print(f"{current_time_train} - EPOCH {epoch+1:1d} TRAIN done: - loss {avg_train_loss:.5f} - perplexity {avg_train_perplexity:.5f} - time (sec) {training_time:.2f} - lr {lr_train:.5f}")
+    print(f"{current_time_train} - EPOCH {epoch+1:1d} TRAIN done: - loss {avg_train_loss:.4f} - perplexity {avg_train_perplexity:.2f} - time (sec) {training_time:.2f} - lr {lr_train:.8f}")
 
 
     
@@ -355,7 +360,7 @@ def evaluate(model, accelerator, eval_dataloader, epoch, epoches):
 #   print("validation summary results")
 #   print("epoch | val loss | val perplexity | val time")
 #   print(f"{epoch+1:5d} | {loss} | {perplexity} | {training_time:}")
-    print(f"{current_time_val} - EPOCH {epoch+1:1d} DEV done: - loss {valid_loss:.5f} - perplexity {perplexity:.5f}")
+    print(f"{current_time_val} - EPOCH {epoch+1:1d} DEV done: - loss {valid_loss:.4f} - perplexity {perplexity:.2f}")
     
     return valid_loss.item(), perplexity.item()
 
@@ -393,7 +398,7 @@ def main():
     
 #   ##########################################TEST#######################################
     # Specify the size of the subset
-#   subset_size = 10000
+#   subset_size = 50000
 #   # Generate a random index for subset
 #   subset_indices_tr = np.random.randint(0, train_data.shape[0], subset_size)
 #   subset_indices_vl = np.random.randint(0, val_data.shape[0], subset_size)
@@ -484,10 +489,21 @@ def main():
 #   print("first evaluation metric:", max_loss, best_perplexity) # record as max 
     sys.stdout.flush()
     
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=20,
-        eta_min=0
+# CosineAnnealingLR
+#   lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+#       optimizer,
+#       T_max=20,
+#       eta_min=0
+#   )
+    
+    num_update_steps_per_epoch = len(train_dataloader) // gradient_accumulation_steps
+    num_training_steps = EPOCHS * num_update_steps_per_epoch
+    
+    lr_scheduler = get_scheduler(
+        name="linear",
+        optimizer=optimizer,
+        num_warmup_steps=1_000,
+        num_training_steps=num_training_steps,
     )
     
 #   num_update_steps_per_epoch = len(train_dataloader)
